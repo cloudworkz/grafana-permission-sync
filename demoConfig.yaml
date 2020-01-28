@@ -1,0 +1,49 @@
+#
+# This is an example config
+#
+
+grafana:
+  url: https://grafana.prd.EXAMPLE-EXAMPLE-EXAMPLE.com/ # where to reach grafana at
+  user: grafana-admin # name of the grafana user (must be an admin obviously)
+  # password for the grafana account is read from the 'GRAFANA_PASS' environment variable
+
+google:
+  credentialsPath: ./google_admin_service_creds.json # service account
+  adminEmail: admin@EXAMPLE-EXAMPLE-EXAMPLE.com # name of the admin account to use (needed to access the google admin API)
+  domain: EXAMPLE-EXAMPLE-EXAMPLE.com # domain for the google service
+
+settings:
+  # how often to fetch all groups from google
+  # you most likely want to keep this value as you'd hit the rate limit otherwise
+  groupsFetchInterval: 30m
+  # applyInterval means how often to apply the latest information to grafana.
+  # you most likely want to keep doing this very often, because checking the current roles of all
+  # grafana users is essentially free, and changes (updating users) are only made when needed.
+  # this ensures that a new user will get their permissions very quickly
+  # (assuming their account was already listed in the latest updated we fetched from googleGroups)
+  applyInterval: 20s
+  # if true, the syncer can
+  # (1) demote a user (change their role to one with less permissions e.g. from Admin to Viewer)
+  # (2) remove users from an organization entirely
+  canDemote: false
+
+rules: [
+    # {
+    #     groups: [ ], #  List of Google Groups (specified by Email-Address)
+    #     users: [ ], # List of users (specified by Email-Address)
+    #     orgs: [ ], # List of Grafana organizations the role gets applied in
+    #     role: Viewer, # The grafana role that gets applied; can be: Viewer, Editor, or Admin
+    # },
+    {
+      # Everyone in the technology group should be able to view the two grafana organizations
+      groups: [technology@my-company.com],
+      orgs: ["Main Grafana Org", "Testing"],
+      role: Viewer,
+    },
+    {
+      # Also assign the Admin role to certain users
+      users: [admin@my-company.com],
+      orgs: ["Main Grafana Org", "Testing"],
+      role: Admin,
+    },
+  ]

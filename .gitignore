@@ -13,3 +13,15 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+notes.md
+
+google_admin_service_creds.json
+config.yaml
+config2.yaml
+config3.yaml
+config4.yaml
+
+launch.json
+
+__debug_bin
