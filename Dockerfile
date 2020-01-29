@@ -9,7 +9,7 @@ COPY ./go.sum .
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o ./bin/grafana-permission-sync ./cmd/api
+RUN CGO_ENABLED=0 go build -o ./bin/grafana-permission-sync ./cmd
 # Compiled backend binary is in '/app/bin/' named 'grafana-permission-sync'
 
 
