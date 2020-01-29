@@ -4,11 +4,11 @@ RUN apk update && apk add --no-cache git ca-certificates && update-ca-certificat
 
 WORKDIR /app
 
-COPY ./backend/go.mod .
-COPY ./backend/go.sum .
+COPY ./go.mod .
+COPY ./go.sum .
 RUN go mod download
 
-COPY ./backend .
+COPY . .
 RUN CGO_ENABLED=0 go build -o ./bin/grafana-permission-sync ./cmd/api
 # Compiled backend binary is in '/app/bin/' named 'grafana-permission-sync'
 
