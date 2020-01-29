@@ -40,19 +40,20 @@ type Config struct {
 	Rules    []*Rule       `yaml:"rules"`
 }
 
-func loadConfig() *Config {
-	configBytes, err := ioutil.ReadFile("config3.yaml")
+func loadConfig(configPath string) *Config {
+	configBytes, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		log.Fatal("can not read config.yaml: " + err.Error())
+		log.Fatalw("can not read config.yaml", "path", configPath, "error", err)
 	}
 
 	config := Config{}
 	err = yaml.Unmarshal(configBytes, &config)
 	if err != nil {
-		log.Fatal("parsing error in config.yaml: " + err.Error())
+		log.Fatalw("parsing error in config.yaml", "error", err)
 	}
 
-	for _, r := range config.Rules {
+	for i, r := range config.Rules {
+		r.Index = i
 		err := r.verify()
 		if err != nil {
 			log.Fatalw("error verifying rule", "error", err, "role", r.Role)

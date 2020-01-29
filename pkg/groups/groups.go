@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/oauth2/google"
@@ -26,15 +25,15 @@ type GroupTree struct {
 type Group struct {
 	Email string
 
-	Parent *Group
 	Groups []*Group
 	Users  []*User
 }
 
 // User is a more useful version of a google user
 type User struct {
-	Email  string
-	Groups []*Group // Groups a user is in (todo: does this include 'implicit' / 'parent' groups??)
+	Email string
+	// Groups []*Group // Groups a user is in directly
+	// AllGroups []*Group // Groups + all indirect groups
 }
 
 // AllUsers constructs a slice containing all users of the group (including users of all nested groups recursively)
@@ -62,12 +61,13 @@ func (g *Group) AllUsers() []*User {
 	}
 
 	for i := 0; i < len(openSet); i++ {
+		current := openSet[i]
 		// add all users in that group
-		for _, u := range g.Users {
+		for _, u := range current.Users {
 			addUser(u)
 		}
 		// and also add all sub-groups to the exploration list
-		for _, subGroup := range g.Groups {
+		for _, subGroup := range current.Groups {
 			addGroup(subGroup)
 		}
 	}
@@ -173,58 +173,11 @@ func (g *GroupTree) ListUserGroups(userKey string) (groups []map[string]interfac
 	return groups, err
 }
 
-// ListAllGroups -
-func (g *GroupTree) ListAllGroups() {
-	var (
-		totalCount, totalPages = 0, 0
-		groupMap               = make(map[string]*Group)
-	)
-
-	err := g.svc.Groups.List().Domain(g.domain).Pages(context.Background(), func(page *admin.Groups) error {
-		totalPages++
-		for _, group := range page.Groups {
-			totalCount++
-
-			g.logger.Infow("group",
-				"email", group.Email,
-				"aliases", strings.Join(group.Aliases, ", "),
-				"nonEditAlias", strings.Join(group.NonEditableAliases, ", "),
-				"description", group.Description,
-				"name", group.Name)
-
-			entry := &Group{group.Email, nil, nil, nil}
-			groupMap[group.Email] = entry
-			for _, alias := range append(group.Aliases, group.NonEditableAliases...) {
-				groupMap[alias] = entry // add under alias names as well
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		g.logger.Fatalw("unable to list groups", "error", err.Error())
-	}
-
-	g.logger.Infow("done", "totalCount", totalCount, "totalPages", totalPages)
-}
-
-// GetUser -
-func (g *GroupTree) GetUser(email string) *User {
-	user, exists := g.users[email]
-	if !exists {
-		// googleUser :=
-		// user := &User{
-		// }
-		// g.users[email] = user
-	}
-	return user
-}
-
 // GetGroup -
 func (g *GroupTree) GetGroup(email string) (*Group, error) {
 	grp, exists := g.groups[email]
 	if exists {
-		return grp, nil // already cached
+		return grp, nil // return existing
 	}
 
 	members, err := g.ListGroupMembersRaw(email, false)
@@ -242,18 +195,13 @@ func (g *GroupTree) GetGroup(email string) (*Group, error) {
 			if err != nil {
 				continue
 			}
-
 			grp.Groups = append(grp.Groups, subGroup) // add it as a child
-			subGroup.Parent = grp                     // set parent
 		} else if m.Type == "USER" {
 			// cache user
 			u, exists := g.users[m.Email]
 			if !exists {
-				u = &User{m.Email, []*Group{grp}}
+				u = &User{m.Email}
 				g.users[m.Email] = u
-			} else {
-				// update (if neccesary)
-				u.Groups = append(u.Groups, grp)
 			}
 
 			grp.Users = append(grp.Users, u)

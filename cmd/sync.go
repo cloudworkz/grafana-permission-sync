@@ -1,8 +1,10 @@
 package main
 
 import (
-	"github.com/grafana-tools/sdk"
 	"time"
+
+	"github.com/cloudworkz/grafana-permission-sync/pkg/groups"
+	"github.com/rikimaru0345/sdk"
 )
 
 // describes an update to a user,
@@ -18,68 +20,43 @@ type userRoleChange struct {
 	Reason       *Rule
 }
 
-type grafanaOrganization struct {
-	*sdk.Org
-	Users []sdk.OrgUser
-}
-
 var (
-	grafana *sdk.Client
-
-	// todo: move this into a separate "Grafana" package and don't use package-globals
-	allUsers      []sdk.User
-	organizations map[uint]*grafanaOrganization // [orgID]Org
-
-	createdPlans         = 0 // must be >0 for the service to be ready
+	createdPlans         = 0
 	lastGoogleGroupFetch time.Time
+
+	grafana   *grafanaState
+	groupTree *groups.GroupTree
 )
 
 func startSync() {
 	lastGoogleGroupFetch = time.Now().Add(-999 * time.Hour)
 	log.Infow("starting sync", "applyInterval", config.Settings.ApplyInterval.String(), "groupRefreshInterval", config.Settings.GroupsFetchInterval.String())
 
-	grafana = sdk.NewClient(config.Grafana.URL, config.Grafana.User+":"+config.Grafana.Password, sdk.DefaultHTTPClient)
+	// 1. grafana state
+	grafanaClient := sdk.NewClient(config.Grafana.URL, config.Grafana.User+":"+config.Grafana.Password, sdk.DefaultHTTPClient)
+	grafana = &grafanaState{grafanaClient, nil, make(map[uint]*grafanaOrganization)}
 
+	// 2. google groups service
+	var err error
+	groupTree, err = groups.CreateGroupTree(log, config.Google.Domain, config.Google.AdminEmail, config.Google.CredentialsPath, []string{
+		"https://www.googleapis.com/auth/admin.directory.group.member.readonly",
+		"https://www.googleapis.com/auth/admin.directory.group.readonly",
+		//"https://www.googleapis.com/auth/admin.directory.user.readonly",
+	}...)
+	if err != nil {
+		log.Fatalw("unable to create google directory service", "error", err.Error())
+	}
+
+	// 3. Sync...
 	for {
 		updatePlan := createUpdatePlan()
 		createdPlans++
 
 		printPlan(updatePlan)
 
+		executePlan(updatePlan)
+
 		time.Sleep(config.Settings.ApplyInterval)
-		time.Sleep(100 * time.Hour)
-		//executeUpdatePlan()
-	}
-}
-
-func printPlan(plan []userUpdate) {
-
-	totalChanges := 0
-	for _, uu := range plan {
-		totalChanges += len(uu.Changes)
-	}
-	log.Infow("printing new update plan to console...", "affectedUsers", len(plan), "totalChanges", totalChanges)
-
-	for _, uu := range plan {
-		for _, change := range uu.Changes {
-			if change.OldRole == "" {
-				// Add to org
-				log.Infow("Add user to org", "user", uu.Email, "org", change.Organization.Name, "role", change.NewRole)
-			} else if change.NewRole == "" {
-				// Remove from org
-				log.Infow("Remove user from org", "user", uu.Email, "org", change.Organization.Name)
-			} else {
-				// Change role in org
-				var verb string
-				if change.NewRole.isHigherThan(change.OldRole) {
-					verb = "Promote"
-				} else {
-					verb = "Demote"
-				}
-
-				log.Infow(verb+" user", "user", uu.Email, "org", change.Organization.Name, "oldRole", change.OldRole, "role", change.NewRole)
-			}
-		}
 	}
 }
 
@@ -87,7 +64,7 @@ func createUpdatePlan() []userUpdate {
 
 	// - Grafana: fetch all users and orgs from grafana
 	log.Info("createUpdatePlan: fetching grafana state")
-	fetchGrafanaState()
+	grafana.fetchState()
 	// - Rules: from the rules get set of all groups and set of all explicit users; fetch them from google
 	log.Info("createUpdatePlan: fetching google groups")
 	fetchGoogleGroups()
@@ -96,9 +73,9 @@ func createUpdatePlan() []userUpdate {
 	updates := make(map[string]*userUpdate) // user email -> update
 
 	// 1. setup initial state: nobody is in any organization!
-	for _, grafUser := range allUsers {
+	for _, grafUser := range grafana.allUsers {
 		var initialChangeSet []*userRoleChange
-		for _, org := range organizations {
+		for _, org := range grafana.organizations {
 			orgUser := org.findUser(grafUser.Email)
 			var currentRole Role
 			if orgUser != nil {
@@ -154,6 +131,79 @@ func createUpdatePlan() []userUpdate {
 	return result
 }
 
+func printPlan(plan []userUpdate) {
+
+	totalChanges := 0
+	for _, uu := range plan {
+		totalChanges += len(uu.Changes)
+	}
+	log.Infow("printing new update plan to console...", "affectedUsers", len(plan), "totalChanges", totalChanges)
+
+	for _, uu := range plan {
+		for _, change := range uu.Changes {
+			if change.OldRole == "" {
+				// Add to org
+				log.Infow("Add user to org", "user", uu.Email, "org", change.Organization.Name, "role", change.NewRole)
+			} else if change.NewRole == "" {
+				// Remove from org
+				log.Infow("Remove user from org", "user", uu.Email, "org", change.Organization.Name)
+			} else {
+				// Change role in org
+				var verb string
+				if change.NewRole.isHigherThan(change.OldRole) {
+					verb = "Promote"
+				} else {
+					verb = "Demote"
+				}
+
+				log.Infow(verb+" user", "user", uu.Email, "org", change.Organization.Name, "oldRole", change.OldRole, "role", change.NewRole, "reasonIndex", change.Reason.Index, "reasonNote", change.Reason.Note)
+			}
+		}
+	}
+}
+
+func executePlan(plan []userUpdate) {
+	log.Infow("executing plan...")
+
+	for _, uu := range plan {
+		for _, change := range uu.Changes {
+			var status sdk.StatusMessage
+			var err error = nil
+			var user *sdk.OrgUser = nil
+
+			if change.OldRole != "" {
+				user = change.Organization.findUser(uu.Email)
+				if user == nil {
+					log.Warnw("cannot find orgUser", "action", "remove from org", "user", uu.Email)
+					continue
+				}
+			}
+
+			if change.OldRole == "" {
+				// Add to org
+				status, err = grafana.AddOrgUser(sdk.UserRole{LoginOrEmail: uu.Email, Role: string(change.NewRole)}, change.Organization.ID)
+			} else if change.NewRole == "" {
+				// Remove from org
+				status, err = grafana.DeleteOrgUser(change.Organization.ID, user.ID)
+			} else {
+				// Change role in org
+				status, err = grafana.UpdateOrgUser(sdk.UserRole{LoginOrEmail: uu.Email, Role: string(change.NewRole)}, change.Organization.ID, user.ID)
+			}
+
+			if err != nil {
+				log.Errorw("error applying change",
+					"error", err,
+					"message", status.Message,
+					"slug", status.Slug,
+					"version", status.Version,
+					"status", status.Status,
+					"UID", status.UID,
+					"URL", status.URL)
+			}
+		}
+	}
+}
+
 func applyRule(userUpdates map[string]*userUpdate, rule *Rule) {
 
 	// 1. find set of all affected users
@@ -184,7 +234,7 @@ func applyRule(userUpdates map[string]*userUpdate, rule *Rule) {
 		}
 
 		for _, change := range update.Changes {
-			if contains(rule.Organizations, change.Organization.Org.Name) {
+			if rule.matchesOrg(change.Organization.Name) {
 				if rule.Role.isHigherThan(change.NewRole) {
 					// this rule applies a "higher" role than is already set
 					change.NewRole = rule.Role
@@ -193,45 +243,6 @@ func applyRule(userUpdates map[string]*userUpdate, rule *Rule) {
 			}
 		}
 	}
-}
-
-func fetchGrafanaState() {
-
-	// get all users (including those that don't belong to any org)
-	var err error
-	allUsers, err = grafana.GetAllUsers()
-	if err != nil {
-		log.Errorf("unable to fetch all users from grafana: %v", err.Error())
-		return
-	}
-
-	// get all orgs...
-	organizations = make(map[uint]*grafanaOrganization)
-	orgs, err := grafana.GetAllOrgs()
-	if err != nil {
-		log.Errorf("unable to list all orgs: %v" + err.Error())
-		return
-	}
-
-	for _, org := range orgs {
-		// ...and their users
-		users, err := grafana.GetOrgUsers(org.ID)
-		if err != nil {
-			log.Error("error listing users for org: " + err.Error())
-			continue
-		}
-		orgCopy := org // need to create a local copy of the org...
-		organizations[org.ID] = &grafanaOrganization{&orgCopy, users}
-	}
-}
-
-func (org grafanaOrganization) findUser(userEmail string) *sdk.OrgUser {
-	for _, u := range org.Users {
-		if u.Email == userEmail {
-			return &u
-		}
-	}
-	return nil
 }
 
 func fetchGoogleGroups() {
@@ -257,6 +268,7 @@ func fetchGoogleGroups() {
 		}
 	}
 
+	// We never need to fetch individual users, if a rule gives permissions to a user directly, we don't need any lookup anyway
 	// distinctUsers := config.getAllUsers()
 	// for _, reqUser := range distinctUsers {
 	// 	log.Infow("fetching google user", "email", reqUser)

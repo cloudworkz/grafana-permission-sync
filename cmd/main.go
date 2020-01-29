@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"strings"
 
-	"github.com/cloudworkz/grafana-permission-sync/pkg/groups"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v2"
@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	config    *Config
-	log       *zap.SugaredLogger
-	groupTree *groups.GroupTree
+	config *Config
+	log    *zap.SugaredLogger
+
+	configPath string
 )
 
 func main() {
@@ -23,27 +24,18 @@ func main() {
 	logRaw, _ := zap.NewProduction()
 	log = logRaw.Sugar()
 
-	config = loadConfig()
+	flag.StringVar(&configPath, "configPath", "./config.yaml", "alternative path to the config file")
+	flag.Parse()
 
+	config = loadConfig(configPath)
 	log.Infow("starting grafana syncer...",
 		"grafana_url", config.Grafana.URL,
 		"rules", len(config.Rules))
 
-	// 2. Create group service
-	var err error
-	groupTree, err = groups.CreateGroupTree(log, config.Google.Domain, config.Google.AdminEmail, config.Google.CredentialsPath, []string{
-		"https://www.googleapis.com/auth/admin.directory.group.member.readonly",
-		"https://www.googleapis.com/auth/admin.directory.group.readonly",
-		//"https://www.googleapis.com/auth/admin.directory.user.readonly",
-	}...)
-	if err != nil {
-		log.Fatalw("unable to create google directory service", "error", err.Error())
-	}
-
-	// 3. Start sync
+	// 2. Start sync
 	go startSync()
 
-	// 4. Start HTTP server
+	// 3. Start HTTP server
 	startWebServer()
 }
 
