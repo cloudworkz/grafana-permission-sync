@@ -25,16 +25,16 @@ jobs:
       - name: Login to Quay
         env:
           QUAY_ENCRYPTED_PASS: ${{ secrets.QUAY_ENCRYPTED_PASS }}
-        run: docker login quay.io -u=rikimaru0345+github_action_bot -p=${QUAY_ENCRYPTED_PASS}
+        run: docker login quay.io -u=google-cloud-tools+github_actions_bot -p=${QUAY_ENCRYPTED_PASS}
 
       - name: Build Docker Image
         run: docker build
           --build-arg "GIT_SHA=${GITHUB_SHA}"
           --build-arg "GIT_REF=${{ steps.extract_ref.outputs.ref }}"
           --build-arg "TIMESTAMP=${{ steps.set_timestamp.outputs.time }}"
-          -t quay.io/rikimaru0345/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}-$(echo ${GITHUB_SHA} | cut -c1-8)
+          -t quay.io/google-cloud-tools/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}-$(echo ${GITHUB_SHA} | cut -c1-8)
           .
 
       - name: Push Image
         run: |
-          docker push quay.io/rikimaru0345/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}-$(echo ${GITHUB_SHA} | cut -c1-8)
+          docker push quay.io/google-cloud-tools/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}-$(echo ${GITHUB_SHA} | cut -c1-8)
