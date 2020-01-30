@@ -32,9 +32,9 @@ jobs:
           --build-arg "GIT_SHA=${GITHUB_SHA}"
           --build-arg "GIT_REF=${{ steps.extract_ref.outputs.ref }}"
           --build-arg "TIMESTAMP=${{ steps.set_timestamp.outputs.time }}"
-          -t quay.io/google-cloud-tools/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}-$(echo ${GITHUB_SHA} | cut -c1-8)
+          -t quay.io/google-cloud-tools/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}
           .
 
       - name: Push Image
         run: |
-          docker push quay.io/google-cloud-tools/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}-$(echo ${GITHUB_SHA} | cut -c1-8)
+          docker push quay.io/google-cloud-tools/grafana-permission-sync:${{ steps.extract_ref.outputs.ref }}
