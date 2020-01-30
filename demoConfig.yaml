@@ -27,6 +27,9 @@ settings:
   # (2) remove users from an organization entirely
   canDemote: false
 
+yamlVars: # yamlVars is not an actual setting, I just use it to group my yaml anchors (aka variables)
+  var1: &MyOrgs ["Main Grafana Org", "Testing"]
+
 rules: [
     # {
     #     groups: [ ], #  List of Google Groups (specified by Email-Address)
@@ -36,8 +39,9 @@ rules: [
     # },
     {
       # Everyone in the technology group should be able to view the two grafana organizations
+      note: "some optional note entry that will be displayed as the 'reason' for a change",
       groups: [technology@my-company.com],
-      orgs: ["Main Grafana Org", "Testing"],
+      orgs: ["Main Grafana Org", "Testing", *MyOrgs], # This is valid because nested arrays will automatically be flattened (and duplicates removed)!
       role: Viewer,
     },
     {

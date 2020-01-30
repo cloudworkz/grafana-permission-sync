@@ -3,10 +3,10 @@
 This tool assigns roles to users in Grafana, based on what Google groups they are in.
 The mapping from Google groups to roles is managed by "rules" in the config file.
 
-### Setup TODO
+### Docker Image
 
 ```
-docker pull quay.io...
+docker pull quay.io/google-cloud-tools/grafana-permission-sync:vX.X.X
 ```
 
 ### Config
@@ -15,7 +15,17 @@ docker pull quay.io...
 
 To see all the settings, take a look at [the demo config file](https://github.com/cloudworkz/grafana-permission-sync/blob/master/demoConfig.yaml)
 
+
+
 ### Rules
+    
+- The `orgs: ` property supports regex, but only if the element is enclosed in `//`!
+    That means `orgs: [ ".*" ]` will not work, it will not be interpreted as a regex!
+    For example: to match everything you'd write `orgs: [ /.*/ ]` or with quotes `orgs: [ "/.*/" ]` (because regex can contain all sorts of symbols).
+
+- The `note: ` property will be shown as the reason for each change
+
+- The only required property in each rule is `role: ` 
 
 Example:
 ```yaml
@@ -36,9 +46,3 @@ rules: [
     },
 ] 
 ```
-
-- The `orgs: ` property supports regex, but only if the element is enclosed in `//`!
-  That means `orgs: [ ".*" ]` will not work, it will not be interpreted as a regex!
-  For example: to match everything you'd write `orgs: [ /.*/ ]` or with quotes `orgs: [ "/.*/" ]` (because regex can contain all sorts of symbols).
-
-- The `note: ` property will be shown as the reason for each change
