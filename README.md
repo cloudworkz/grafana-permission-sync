@@ -1,4 +1,5 @@
 # Grafana Permission Sync
+[![Docker Repository on Quay](https://quay.io/repository/google-cloud-tools/grafana-permission-sync/status "Docker Repository on Quay")](https://quay.io/repository/google-cloud-tools/grafana-permission-sync)
 
 ### What does it do?
 This tool assigns roles to users in Grafana, based on what Google groups they are in.
@@ -9,21 +10,25 @@ It repeats the following steps
 1. Get all orgs and all users from grafana
 2. Query the google api to get all relevant google groups (done at most once every `settings.groupsFetchInterval`)
 3. Using the `rules: []` from the config file, compute what user should have what role in each grafana organization;
-  resulting in an "update plan" (a list of changes) that will be printed to stdout
+  resulting in an "update plan" (a list of changes) that will be printed to stdout.
+  Example output:
+  ```json
+  {"level":"info", "msg":"Promote user", "user":"Alice@COMPANY.com", "org":"Some Org Name [INT]", "oldRole":"Viewer", "role":"Admin"}
+  {"level":"info", "msg":"Remove user from org", "user":"Alice@COMPANY.com", "org":"Controlling"}
+  {"level":"info", "msg":"Demote user", "user":"Alice@COMPANY.com", "org":"Some Org Name [PRD]", "oldRole":"Admin", "role":"Viewer"}
+  {"level":"info", "msg":"Add user to org", "user":"SomeOtherUser", "org":"Some Org Name [PRD]", "role":"Viewer"}
+  ```
+
 4. Apply all the planned changes slowly (at 10 operations per second)
 5. Wait for `settings.applyInterval` and then repeat from the start
 
-### Docker Image
-
-```
-docker pull quay.io/google-cloud-tools/grafana-permission-sync:vX.X.X
-```
 
 ### Config
 
-- By default the config file is loaded from `./config.yaml`, but you can override the path using the configPath flag: `--configPath=some/other/path/config.yaml`
+- By default the config file is loaded from `./config.yaml`,
+  but you can override the path using the configPath flag: `--configPath=some/other/path/config.yaml`
 
-To see all the settings, take a look at [the demo config file](https://github.com/cloudworkz/grafana-permission-sync/blob/master/demoConfig.yaml)
+Take a look at the [**the demo config file**](https://github.com/cloudworkz/grafana-permission-sync/blob/master/demoConfig.yaml) to see all settings
 
 
 
