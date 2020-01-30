@@ -1,7 +1,17 @@
 # Grafana Permission Sync
 
+### What does it do?
 This tool assigns roles to users in Grafana, based on what Google groups they are in.
 The mapping from Google groups to roles is managed by "rules" in the config file.
+
+### How does it work?
+It repeats the following steps
+1. Get all orgs and all users from grafana
+2. Query the google api to get all relevant google groups (done at most once every `settings.groupsFetchInterval`)
+3. Using the `rules: []` from the config file, compute what user should have what role in each grafana organization;
+  resulting in an "update plan" (a list of changes) that will be printed to stdout
+4. Apply all the planned changes slowly (at 10 operations per second)
+5. Wait for `settings.applyInterval` and then repeat from the start
 
 ### Docker Image
 
@@ -46,3 +56,15 @@ rules: [
     },
 ] 
 ```
+
+
+### Why are there two different time intervals?
+
+- `settings.groupsFetchInterval` controls how often google groups are fetched.
+  To avoid hitting googles rate limit, you probably want this to have a pretty high value (30 minutes or so).
+
+- `settings.applyInterval` controls how often the main loop runs.
+  Grafana creates an account for a user when they login for the first time.
+  When the new user account is created, grafana-permission-sync can assign the correct
+  permissions (organization membership and roles) the next time it computes an update.
+  So we want to do this pretty often (scanning for newly created users and assigning the right permissions to them).
