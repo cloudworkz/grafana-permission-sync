@@ -5,6 +5,7 @@ import (
 
 	"github.com/cloudworkz/grafana-permission-sync/pkg/groups"
 	"github.com/rikimaru0345/sdk"
+	"golang.org/x/time/rate"
 )
 
 // describes an update to a user,
@@ -28,13 +29,13 @@ var (
 	groupTree *groups.GroupTree
 )
 
-func startSync() {
+func setupSync() {
 	lastGoogleGroupFetch = time.Now().Add(-999 * time.Hour)
 	log.Infow("starting sync", "applyInterval", config.Settings.ApplyInterval.String(), "groupRefreshInterval", config.Settings.GroupsFetchInterval.String())
 
 	// 1. grafana state
 	grafanaClient := sdk.NewClient(config.Grafana.URL, config.Grafana.User+":"+config.Grafana.Password, sdk.DefaultHTTPClient)
-	grafana = &grafanaState{grafanaClient, nil, make(map[uint]*grafanaOrganization)}
+	grafana = &grafanaState{grafanaClient, nil, make(map[uint]*grafanaOrganization), rate.NewLimiter(rate.Every(time.Second/10), 2)}
 
 	// 2. google groups service
 	var err error
@@ -46,8 +47,9 @@ func startSync() {
 	if err != nil {
 		log.Fatalw("unable to create google directory service", "error", err.Error())
 	}
+}
 
-	// 3. Sync...
+func startSync() {
 	for {
 		updatePlan := createUpdatePlan()
 		createdPlans++
@@ -181,17 +183,24 @@ func executePlan(plan []userUpdate) {
 
 			if change.OldRole == "" {
 				// Add to org
+				grafana.Wait()
 				status, err = grafana.AddOrgUser(sdk.UserRole{LoginOrEmail: uu.Email, Role: string(change.NewRole)}, change.Organization.ID)
 			} else if change.NewRole == "" {
 				// Remove from org
+				grafana.Wait()
 				status, err = grafana.DeleteOrgUser(change.Organization.ID, user.ID)
 			} else {
 				// Change role in org
+				grafana.Wait()
 				status, err = grafana.UpdateOrgUser(sdk.UserRole{LoginOrEmail: uu.Email, Role: string(change.NewRole)}, change.Organization.ID, user.ID)
 			}
 
 			if err != nil {
 				log.Errorw("error applying change",
+					"userEmail", uu.Email,
+					"changeOrg", change.Organization.Name,
+					"changeOldRole", change.OldRole,
+					"changeNewRole", change.NewRole,
 					"error", err,
 					"message", status.Message,
 					"slug", status.Slug,

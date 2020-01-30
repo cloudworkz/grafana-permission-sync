@@ -33,6 +33,7 @@ func main() {
 		"rules", len(config.Rules))
 
 	// 2. Start sync
+	setupSync()
 	go startSync()
 
 	// 3. Start HTTP server
@@ -40,7 +41,7 @@ func main() {
 }
 
 func startWebServer() {
-	gin.SetMode(gin.ReleaseMode)
+	//gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 
 	rawLog := log.Desugar()
@@ -68,7 +69,6 @@ func startWebServer() {
 			rawLog.Info("handling http request", fields...)
 			return "" // prevent unstructured logging
 		},
-		SkipPaths: []string{"/admin/"},
 	}))
 
 	r.Use(gin.Recovery())
