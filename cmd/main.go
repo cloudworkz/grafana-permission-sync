@@ -41,7 +41,7 @@ func main() {
 }
 
 func startWebServer() {
-	//gin.SetMode(gin.ReleaseMode)
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 
 	rawLog := log.Desugar()
