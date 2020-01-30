@@ -73,3 +73,7 @@ rules: [
   When the new user account is created, grafana-permission-sync can assign the correct
   permissions (organization membership and roles) the next time it computes an update.
   So we want to do this pretty often (scanning for newly created users and assigning the right permissions to them).
+
+### Health/Liveness
+
+Kubernetes ready and liveness probes: `/admin/ready` and `/admin/alive`

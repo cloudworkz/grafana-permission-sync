@@ -43,13 +43,13 @@ type Config struct {
 func loadConfig(configPath string) *Config {
 	configBytes, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		log.Fatalw("can not read config.yaml", "path", configPath, "error", err)
+		log.Fatalw("can not read config file", "path", configPath, "error", err)
 	}
 
 	config := Config{}
 	err = yaml.Unmarshal(configBytes, &config)
 	if err != nil {
-		log.Fatalw("parsing error in config.yaml", "error", err)
+		log.Fatalw("parsing error in config file", "error", err)
 	}
 
 	for i, r := range config.Rules {
