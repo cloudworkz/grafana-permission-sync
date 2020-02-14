@@ -25,3 +25,5 @@ config4.yaml
 launch.json
 
 __debug_bin
+
+.idea

@@ -62,13 +62,21 @@ func (g *Group) AllUsers() []*User {
 
 	for i := 0; i < len(openSet); i++ {
 		current := openSet[i]
+		if current == nil {
+			continue
+		}
+
 		// add all users in that group
 		for _, u := range current.Users {
-			addUser(u)
+			if u != nil {
+				addUser(u)
+			}
 		}
 		// and also add all sub-groups to the exploration list
 		for _, subGroup := range current.Groups {
-			addGroup(subGroup)
+			if subGroup != nil {
+				addGroup(subGroup)
+			}
 		}
 	}
 
@@ -182,7 +190,7 @@ func (g *GroupTree) GetGroup(email string) (*Group, error) {
 
 	members, err := g.ListGroupMembersRaw(email, false)
 	if err != nil {
-		g.logger.Warnw("error listing group members", "groupEmail", email)
+		g.logger.Warnw("error listing group members", "groupEmail", email, "err", err)
 		return nil, err // error
 	}
 
