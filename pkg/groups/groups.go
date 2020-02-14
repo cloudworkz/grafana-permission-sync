@@ -116,11 +116,11 @@ func (g *GroupTree) Clear() {
 }
 
 // ListGroupMembersRaw finds all members in a group
-func (g *GroupTree) ListGroupMembersRaw(groupKey string, includeDerived bool) (result []*admin.Member, err error) {
+func (g *GroupTree) ListGroupMembersRaw(groupKey string) (result []*admin.Member, err error) {
 	// g.logger.Infof("listing members for group: %v", groupKey)
 	result = []*admin.Member{}
 
-	err = g.svc.Members.List(groupKey).IncludeDerivedMembership(includeDerived).Pages(context.Background(), func(page *admin.Members) error {
+	err = g.svc.Members.List(groupKey).IncludeDerivedMembership(false).Pages(context.Background(), func(page *admin.Members) error {
 		for _, member := range page.Members {
 			result = append(result, member)
 		}
@@ -138,7 +138,7 @@ func (g *GroupTree) ListGroupMembers(groupKey string, includeDerived bool) (resu
 	result = make([]map[string]interface{}, 0)
 
 	// We handle lookup of nested groups manually, so we pass 'false'
-	members, err := g.ListGroupMembersRaw(groupKey, false)
+	members, err := g.ListGroupMembersRaw(groupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (g *GroupTree) GetGroup(email string) (*Group, error) {
 		return grp, nil // return existing
 	}
 
-	members, err := g.ListGroupMembersRaw(email, false)
+	members, err := g.ListGroupMembersRaw(email)
 	if err != nil {
 		g.logger.Warnw("error listing group members", "groupEmail", email, "err", err)
 		return nil, err // error
