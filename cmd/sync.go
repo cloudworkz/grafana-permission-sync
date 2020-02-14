@@ -39,7 +39,7 @@ func setupSync() {
 
 	// 2. google groups service
 	var err error
-	groupTree, err = groups.CreateGroupTree(log, config.Google.Domain, config.Google.AdminEmail, config.Google.CredentialsPath, []string{
+	groupTree, err = groups.CreateGroupTree(log, config.Google.Domain, config.Google.AdminEmail, config.Google.CredentialsPath, config.Google.GroupBlacklist, []string{
 		"https://www.googleapis.com/auth/admin.directory.group.member.readonly",
 		"https://www.googleapis.com/auth/admin.directory.group.readonly",
 		//"https://www.googleapis.com/auth/admin.directory.user.readonly",

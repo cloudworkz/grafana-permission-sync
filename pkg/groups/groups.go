@@ -2,8 +2,11 @@ package groups
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"regexp"
+	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/oauth2/google"
@@ -17,8 +20,9 @@ type GroupTree struct {
 	logger *zap.SugaredLogger
 	domain string
 
-	groups map[string]*Group
-	users  map[string]*User
+	groups         map[string]*Group
+	users          map[string]*User
+	groupBlacklist []string
 }
 
 // Group is a 'google group', but in a more useful format than the original libarary provides
@@ -84,7 +88,7 @@ func (g *Group) AllUsers() []*User {
 }
 
 // CreateGroupTree -
-func CreateGroupTree(logger *zap.SugaredLogger, domain string, userEmail string, serviceAccountFilePath string, scopes ...string) (*GroupTree, error) {
+func CreateGroupTree(logger *zap.SugaredLogger, domain string, userEmail string, serviceAccountFilePath string, groupBlacklist []string, scopes ...string) (*GroupTree, error) {
 	ctx := context.Background()
 	log := logger
 
@@ -106,7 +110,7 @@ func CreateGroupTree(logger *zap.SugaredLogger, domain string, userEmail string,
 	if err != nil {
 		return nil, fmt.Errorf("NewService: %v", err)
 	}
-	return &GroupTree{svc, logger, domain, map[string]*Group{}, make(map[string]*User)}, nil
+	return &GroupTree{svc, logger, domain, map[string]*Group{}, make(map[string]*User), groupBlacklist}, nil
 }
 
 // Clear removes all groups and users from the cache
@@ -188,6 +192,13 @@ func (g *GroupTree) GetGroup(email string) (*Group, error) {
 		return grp, nil // return existing
 	}
 
+	// Check blacklist
+	isBlacklisted, reason := g.isGroupInBlacklist(email)
+	if isBlacklisted {
+		g.logger.Infow("Skipping group because it is blacklisted", "groupEmail", email, "pattern", reason)
+		return nil, errors.New("group is blacklisted by: '" + reason + "'")
+	}
+
 	members, err := g.ListGroupMembersRaw(email)
 	if err != nil {
 		g.logger.Warnw("error listing group members", "groupEmail", email, "err", err)
@@ -219,4 +230,24 @@ func (g *GroupTree) GetGroup(email string) (*Group, error) {
 	}
 
 	return grp, nil
+}
+
+func (g *GroupTree) isGroupInBlacklist(email string) (isBlacklisted bool, reason string) {
+	for _, item := range g.groupBlacklist {
+		if strings.HasPrefix(item, "/") && strings.HasSuffix(item, "/") {
+			// regex match
+			pattern := item[1 : len(item)-1]
+			isMatch, err := regexp.MatchString(pattern, email)
+			if err == nil && isMatch {
+				return true, item
+			}
+		} else {
+			// regular match
+			if item == email {
+				return true, item
+			}
+		}
+	}
+
+	return false, ""
 }

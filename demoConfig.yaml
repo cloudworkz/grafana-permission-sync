@@ -11,6 +11,10 @@ google:
   credentialsPath: ./google_admin_service_creds.json # service account
   adminEmail: admin@EXAMPLE-EXAMPLE-EXAMPLE.com # name of the admin account to use (needed to access the google admin API)
   domain: EXAMPLE-EXAMPLE-EXAMPLE.com # domain for the google service
+  # You can blacklist some google groups. The tool will not try to resolve matching groups.
+  # This is useful if you have some groups in your organization that are managed externally.
+  # You can specify exact matches (just plain strings), or regex patterns (must be enclosed in // to mark them as regex!)
+  groupBlacklist: ["/.*@some-external-group\\.com/"]
 
 settings:
   # how often to fetch all groups from google
