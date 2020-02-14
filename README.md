@@ -1,39 +1,45 @@
 # Grafana Permission Sync
 [![Docker Repository on Quay](https://quay.io/repository/google-cloud-tools/grafana-permission-sync/status "Docker Repository on Quay")](https://quay.io/repository/google-cloud-tools/grafana-permission-sync)
+[![license](https://img.shields.io/github/license/google-cloud-tools/grafana-gsuite-sync.svg?maxAge=604800)](https://github.com/google-cloud-tools/grafana-gsuite-sync)
+
 
 ### What does it do?
-This tool assigns roles to users in Grafana, based on what Google groups they are in.
-The mapping from Google groups to roles is managed by "rules" in the config file.
+This tool assigns roles to users in Grafana - based on what Google Groups they are in.
+The mapping of what group results in what org/role is managed through [the config file](#config).
+
+This tool is a full rewrite of (rewrite of [grafana-gsuite-sync](https://github.com/cloudworkz/grafana-gsuite-sync))
+
 
 ### How does it work?
-It repeats the following steps
 1. Get all orgs and all users from grafana
-2. Query the google api to get all relevant google groups (done at most once every `settings.groupsFetchInterval`)
-3. Using the `rules: []` from the config file, compute what user should have what role in each grafana organization;
-  resulting in an "update plan" (a list of changes) that will be printed to stdout.
-  Example output:
+2. Fetch all relevant google groups (once every `settings.groupsFetchInterval`)
+3. For each user, compute what orgs they should be in and what role they should have. This "update plan" (the list of changes to be made) that will be printed to stdout, for example:
   ```json
-  {"level":"info", "msg":"Promote user", "user":"Alice@COMPANY.com", "org":"Some Org Name [INT]", "oldRole":"Viewer", "role":"Admin"}
+  {"level":"info", "msg":"Promote user", "user":"Alice@COMPANY.com", "org":"Some Org Name [INT]", "oldRole":"Viewer", "role":"Admin"}`
   {"level":"info", "msg":"Remove user from org", "user":"Alice@COMPANY.com", "org":"Controlling"}
   {"level":"info", "msg":"Demote user", "user":"Alice@COMPANY.com", "org":"Some Org Name [PRD]", "oldRole":"Admin", "role":"Viewer"}
   {"level":"info", "msg":"Add user to org", "user":"SomeOtherUser", "org":"Some Org Name [PRD]", "role":"Viewer"}
-  ```
+ ```
+  
+4. Apply the changes slowly (capped at 10 operations per second)
+5. Wait for `settings.applyInterval`, then repeat
 
-4. Apply all the planned changes slowly (at 10 operations per second)
-5. Wait for `settings.applyInterval` and then repeat from the start
+
+### Requirements
+- **Docker Image**: `docker pull quay.io/google-cloud-tools/grafana-permission-sync`
+- **Google Service Account**: credentials (in `.json`) of a Google service account, which has permissions to impersonate a user that can see all groups ([instructions on how to set that up](https://developers.google.com/admin-sdk/directory/v1/guides/delegation#delegate_domain-wide_authority_to_your_service_account))
+- **Grafana Admin**: credentails of a Grafana user that has 'server admin' set
+- **Config**: use [the example](https://github.com/cloudworkz/grafana-permission-sync/blob/master/demoConfig.yaml) as a starting point and add your rules
 
 
 ### Config
-
 - By default the config file is loaded from `./config.yaml`,
   but you can override the path using the configPath flag: `--configPath=some/other/path/config.yaml`
 
 Take a look at the [**the demo config file**](https://github.com/cloudworkz/grafana-permission-sync/blob/master/demoConfig.yaml) to see all settings
 
 
-
 ### Rules
-    
 - The `orgs: ` property supports regex, but only if the element is enclosed in `//`!
     That means `orgs: [ ".*" ]` will not work, it will not be interpreted as a regex!
     For example: to match everything you'd write `orgs: [ /.*/ ]` or with quotes `orgs: [ "/.*/" ]` (because regex can contain all sorts of symbols).
@@ -64,7 +70,6 @@ rules: [
 
 
 ### Why are there two different time intervals?
-
 - `settings.groupsFetchInterval` controls how often google groups are fetched.
   To avoid hitting googles rate limit, you probably want this to have a pretty high value (30 minutes or so).
 
