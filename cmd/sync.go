@@ -27,6 +27,8 @@ var (
 
 	grafana   *grafanaState
 	groupTree *groups.GroupTree
+
+	dryRun = false
 )
 
 func setupSync() {
@@ -51,12 +53,23 @@ func setupSync() {
 
 func startSync() {
 	for {
-		updatePlan := createUpdatePlan()
-		createdPlans++
+		next := newConfig // todo: most likely nothing will go wrong here, but it would be cleaner to do a real "interlocked compare exchange"
+		if next != nil {
+			config = next
+			newConfig = nil
+			log.Info("A new config has been loaded since the last iteration and has been applied now.")
+		}
 
-		printPlan(updatePlan)
+		if !dryRun {
+			updatePlan := createUpdatePlan()
+			createdPlans++
 
-		executePlan(updatePlan)
+			printPlan(updatePlan)
+
+			executePlan(updatePlan)
+		} else {
+			log.Info("dry run (skipped plan and execute)")
+		}
 
 		time.Sleep(config.Settings.ApplyInterval)
 	}
@@ -97,7 +110,7 @@ func createUpdatePlan() []userUpdate {
 	// 3. filter changes:
 	// - remove entries that don't do anything (same new and old role)
 	// - remove demotions if we're not allowed to
-	// - todo: do not remove from orgID 1
+	// - do not remove anyone from orgID 1
 	for _, userUpdate := range updates {
 		var realChanges []*userRoleChange
 		for _, change := range userUpdate.Changes {

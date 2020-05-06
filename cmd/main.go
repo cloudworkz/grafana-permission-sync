@@ -3,18 +3,22 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"path/filepath"
 	"strings"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v2"
 
+	"github.com/cloudworkz/grafana-permission-sync/pkg/watcher"
 	"github.com/gin-gonic/gin"
 )
 
 var (
-	config *Config
-	log    *zap.SugaredLogger
+	config    *Config // current
+	newConfig *Config // new config to use next
+
+	log *zap.SugaredLogger
 
 	configPath string
 )
@@ -27,7 +31,15 @@ func main() {
 	flag.StringVar(&configPath, "configPath", "./config.yaml", "alternative path to the config file")
 	flag.Parse()
 
-	config = loadConfig(configPath)
+	// Load config
+	config = tryLoadConfig(configPath)
+	if config == nil {
+		log.Fatal("can't start, error loading config. initial config must be valid (hot reloaded config may be invalid, in which case the old/previous config will be kept)")
+	}
+
+	// Configure hot-reload
+	setupConfigHotReload(configPath)
+
 	log.Infow("starting grafana syncer...",
 		"grafana_url", config.Grafana.URL,
 		"rules", len(config.Rules))
@@ -129,4 +141,41 @@ func renderJSON(c *gin.Context, code int, obj interface{}) {
 		c.String(500, "error: "+err.Error())
 	}
 	c.Data(code, "text/plain; charset=utf-8", bytes)
+}
+
+func setupConfigHotReload(configPath string) {
+
+	configPathAbs, err := filepath.Abs(configPath)
+	if err != nil {
+		log.Fatal("cannot build absolute path", "path", configPath, "error", err)
+	}
+
+	watcher, err := watcher.WatchPath(configPath)
+	if err != nil {
+		log.Errorw("can't start config file watcher. config hot-reloading will be disabled!", "error", err)
+	}
+	watcher.OnError = func(err error) {
+		log.Errorw("error in config watcher", "error", err)
+	}
+	watcher.OnChange = func(filePath string) {
+		filePathAbs, err := filepath.Abs(filePath)
+		if err != nil {
+			log.Fatal("cannot build absolute path", "path", filePath, "error", err)
+		}
+		if filePathAbs != configPathAbs {
+			log.Warnw("config file watcher notified us about a file we don't want to know about", "fileWeWantToWatch", configPath, "fileReportedByWatcher", filePath)
+			return
+		}
+
+		// Try to reload the config, and if it is valid, set it
+		c := tryLoadConfig(configPath)
+		if c == nil {
+			log.Error("Config file changed, but loading failed. Will continue with already loaded config and ignore new config.")
+			return
+		}
+		newConfig = c
+
+		log.Info("new config loaded successfully, swapping on next idle phase")
+
+	}
 }

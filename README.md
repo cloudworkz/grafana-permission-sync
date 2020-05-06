@@ -19,8 +19,7 @@ This tool is a full rewrite of (rewrite of [grafana-gsuite-sync](https://github.
   {"level":"info", "msg":"Remove user from org", "user":"Alice@COMPANY.com", "org":"Controlling"}
   {"level":"info", "msg":"Demote user", "user":"Alice@COMPANY.com", "org":"Some Org Name [PRD]", "oldRole":"Admin", "role":"Viewer"}
   {"level":"info", "msg":"Add user to org", "user":"SomeOtherUser", "org":"Some Org Name [PRD]", "role":"Viewer"}
- ```
-  
+```
 4. Apply the changes slowly (capped at 10 operations per second)
 5. Wait for `settings.applyInterval`, then repeat
 
@@ -37,6 +36,11 @@ This tool is a full rewrite of (rewrite of [grafana-gsuite-sync](https://github.
   but you can override the path using the configPath flag: `--configPath=some/other/path/config.yaml`
 
 Take a look at the [**the demo config file**](https://github.com/cloudworkz/grafana-permission-sync/blob/master/demoConfig.yaml) to see all settings
+
+- The config supports hot reloading. When the file changes, it will be automatically reloaded.
+  When a new config is loaded successfully (no parsing or validation errors), it will be applied (actually used) from the next iteration onwards. That basically just means a new config won't be applied in the middle of a running permission update.
+
+- Hot reloading does currently only affect changes to the `settings:` and `rules:` blocks. Other blocks (`google:`, `grafana:`) are not updated and require the application to be restarted. (Will be fixed soon)
 
 
 ### Rules

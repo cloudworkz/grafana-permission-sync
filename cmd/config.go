@@ -41,29 +41,33 @@ type Config struct {
 	Rules    []*Rule       `yaml:"rules"`
 }
 
-func loadConfig(configPath string) *Config {
+// may return nil in case of errors
+func tryLoadConfig(configPath string) *Config {
 	configBytes, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		log.Fatalw("can not read config file", "path", configPath, "error", err)
+		log.Errorw("can not read config file", "path", configPath, "error", err)
+		return nil
 	}
 
-	config := Config{}
-	err = yaml.Unmarshal(configBytes, &config)
+	c := Config{}
+	err = yaml.Unmarshal(configBytes, &c)
 	if err != nil {
-		log.Fatalw("parsing error in config file", "error", err)
+		log.Errorw("parsing error in config file", "error", err)
+		return nil
 	}
 
-	for i, r := range config.Rules {
+	for i, r := range c.Rules {
 		r.Index = i
 		err := r.verify()
 		if err != nil {
-			log.Fatalw("error verifying rule", "error", err, "role", r.Role)
+			log.Errorw("error verifying rule", "error", err, "role", r.Role)
+			return nil
 		}
 	}
 
-	config.Grafana.Password = os.Getenv("GRAFANA_PASS")
+	c.Grafana.Password = os.Getenv("GRAFANA_PASS")
 
-	return &config
+	return &c
 }
 
 func (c *Config) getAllGroups() []string {
