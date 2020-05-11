@@ -21,19 +21,32 @@ type userRoleChange struct {
 	Reason       *Rule
 }
 
+const (
+	noUpdatesMessageInterval = 2 * time.Hour // how often to print the "no changes" message
+)
+
 var (
-	createdPlans         = 0
-	lastGoogleGroupFetch time.Time
+	createdPlans = 0
+
+	applyRateLimit *rate.Limiter
+
+	lastGoogleGroupFetch        time.Time
+	googleGroupRefreshRateLimit *rate.Limiter
+
+	noUpdatesMessageRateLimit *rate.Limiter
 
 	grafana   *grafanaState
 	groupTree *groups.GroupTree
-
-	dryRun = false
 )
 
 func setupSync() {
-	lastGoogleGroupFetch = time.Now().Add(-999 * time.Hour)
-	log.Infow("starting sync", "applyInterval", config.Settings.ApplyInterval.String(), "groupRefreshInterval", config.Settings.GroupsFetchInterval.String())
+	setupRateLimits()
+
+	log.Infow("Starting Grafana-Permission-Sync",
+		"applyInterval", config.Settings.ApplyInterval.String(),
+		"groupRefreshInterval", config.Settings.GroupsFetchInterval.String(),
+		"grafana_url", config.Grafana.URL,
+		"rules", len(config.Rules))
 
 	// 1. grafana state
 	grafanaClient := sdk.NewClient(config.Grafana.URL, config.Grafana.User+":"+config.Grafana.Password, sdk.DefaultHTTPClient)
@@ -51,40 +64,70 @@ func setupSync() {
 	}
 }
 
+func setupRateLimits() {
+	applyRateLimit = rate.NewLimiter(rate.Every(config.Settings.ApplyInterval), 1)
+	googleGroupRefreshRateLimit = rate.NewLimiter(rate.Every(config.Settings.GroupsFetchInterval), 1)
+	noUpdatesMessageRateLimit = rate.NewLimiter(rate.Every(noUpdatesMessageInterval), 1)
+}
+
+// startSync is the main loop, it does not return.
 func startSync() {
+
 	for {
+		// 1.
+		// Wait for rate limit or config change
+		for {
+			if applyRateLimit.Allow() {
+				break // its time for the next update
+			}
+			if newConfig != nil {
+				break // config has changed
+			}
+			time.Sleep(time.Millisecond * 500)
+		}
+
+		// 2.
+		// Load new config (if there is one)
 		next := newConfig // todo: most likely nothing will go wrong here, but it would be cleaner to do a real "interlocked compare exchange"
 		if next != nil {
 			config = next
 			newConfig = nil
-			log.Info("A new config has been loaded since the last iteration and has been applied now.")
+			setupRateLimits()
+			log.Info("A new config has been loaded and applied!")
 		}
 
-		if !dryRun {
-			updatePlan := createUpdatePlan()
-			createdPlans++
+		// 3.
+		// Create and execute update plan
+		if dryRunNoPlanNoExec {
+			log.Warn("mode: dryRunNoPlanNoExec")
+			continue // skip rest
+		}
 
+		updatePlan := createUpdatePlan()
+		createdPlans++
+
+		if len(updatePlan) > 0 {
 			printPlan(updatePlan)
 
-			executePlan(updatePlan)
+			if !dryRunNoExec {
+				executePlan(updatePlan)
+			} else {
+				log.Warn("mode: dryRunNoExec")
+			}
 		} else {
-			log.Info("dry run (skipped plan and execute)")
+			printNoNewUpdates()
 		}
-
-		time.Sleep(config.Settings.ApplyInterval)
 	}
 }
 
 func createUpdatePlan() []userUpdate {
 
 	// - Grafana: fetch all users and orgs from grafana
-	log.Info("createUpdatePlan: fetching grafana state")
 	grafana.fetchState()
+
 	// - Rules: from the rules get set of all groups and set of all explicit users; fetch them from google
-	log.Info("createUpdatePlan: fetching google groups")
 	fetchGoogleGroups()
 
-	log.Info("createUpdatePlan: compute update map")
 	updates := make(map[string]*userUpdate) // user email -> update
 
 	// 1. setup initial state: nobody is in any organization!
@@ -152,7 +195,9 @@ func printPlan(plan []userUpdate) {
 	for _, uu := range plan {
 		totalChanges += len(uu.Changes)
 	}
-	log.Infow("printing new update plan to console...", "affectedUsers", len(plan), "totalChanges", totalChanges)
+
+	log.Info("")
+	log.Infow("New update-plan computed!", "affectedUsers", len(plan), "totalChanges", totalChanges)
 
 	for _, uu := range plan {
 		for _, change := range uu.Changes {
@@ -175,10 +220,13 @@ func printPlan(plan []userUpdate) {
 			}
 		}
 	}
+
+	log.Info("")
 }
 
 func executePlan(plan []userUpdate) {
-	log.Infow("executing plan...")
+
+	log.Infow("Applying updates to Grafana...")
 
 	for _, uu := range plan {
 		for _, change := range uu.Changes {
@@ -209,11 +257,11 @@ func executePlan(plan []userUpdate) {
 			}
 
 			if err != nil {
-				log.Errorw("error applying change",
+				log.Errorw("error applying update",
 					"userEmail", uu.Email,
-					"changeOrg", change.Organization.Name,
-					"changeOldRole", change.OldRole,
-					"changeNewRole", change.NewRole,
+					"org", change.Organization.Name,
+					"oldRole", change.OldRole,
+					"newRole", change.NewRole,
 					"error", err,
 					"message", status.Message,
 					"slug", status.Slug,
@@ -269,31 +317,46 @@ func applyRule(userUpdates map[string]*userUpdate, rule *Rule) {
 
 func fetchGoogleGroups() {
 
-	timeSinceLastGroupFetch := time.Now().Sub(lastGoogleGroupFetch)
-	if timeSinceLastGroupFetch < config.Settings.GroupsFetchInterval {
-		// skip update for now...
+	r := googleGroupRefreshRateLimit.Reserve()
+	if r.OK() == false {
+		// should not be possible because we're the only function and go-routine that ever uses this!
+		log.Error("google groups refresh: rateLimit.Reserve().OK() returned false")
 		return
 	}
 
-	lastGoogleGroupFetch = time.Now()
-	log.Infow("refreshing google groups", "timeSinceLastGroupFetch", timeSinceLastGroupFetch.String())
+	readyIn := r.Delay()
+	if readyIn > 0 {
+		r.Cancel() // dont actually consume a token
+		log.Debugw("refresh google groups: not ready yet", "nextRefreshAllowedIn", readyIn.String())
+		return
+	}
+
+	now := time.Now()
+	timeSinceLast := now.Sub(lastGoogleGroupFetch)
+	lastGoogleGroupFetch = now
 
 	groupTree.Clear()
 
 	// prefetch all groups and users
 	distinctGroups := config.getAllGroups()
+
+	log.Infow("Refreshing google groups...", "timeSinceLastGroupFetch", timeSinceLast.String(), "groupCount", len(distinctGroups))
+
 	for _, reqGroup := range distinctGroups {
-		log.Infow("fetching google group", "email", reqGroup)
+		log.Debugw("fetching google group", "email", reqGroup)
 		_, err := groupTree.GetGroup(reqGroup)
 		if err != nil {
 			log.Errorw("error fetching group", "error", err)
 		}
 	}
+}
 
-	// We never need to fetch individual users, if a rule gives permissions to a user directly, we don't need any lookup anyway
-	// distinctUsers := config.getAllUsers()
-	// for _, reqUser := range distinctUsers {
-	// 	log.Infow("fetching google user", "email", reqUser)
-	// 	groupTree.GetUser(reqUser)
-	// }
+func printNoNewUpdates() {
+	if noUpdatesMessageRateLimit.Allow() == false {
+		return
+	}
+
+	log.Infow("Computed update plan contains no changes. (This message will be throttled in order to prevent the log from being spammed. "+"Grafana-Permission-Sync will continue to run as usual and check for updates with the same frequency.)",
+		"applyInterval", config.Settings.ApplyInterval.String(),
+		"noUpdatesMessageInterval", noUpdatesMessageInterval.String())
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,6 +22,9 @@ var (
 	log *zap.SugaredLogger
 
 	configPath string
+
+	dryRunNoPlanNoExec = len(os.Getenv("GRAFANA_PERMISSION_SYNC_NO_PLAN_NO_EXEC")) > 0
+	dryRunNoExec       = len(os.Getenv("GRAFANA_PERMISSION_SYNC_NO_EXEC")) > 0
 )
 
 func main() {
@@ -39,10 +43,6 @@ func main() {
 
 	// Configure hot-reload
 	setupConfigHotReload(configPath)
-
-	log.Infow("starting grafana syncer...",
-		"grafana_url", config.Grafana.URL,
-		"rules", len(config.Rules))
 
 	// 2. Start sync
 	setupSync()
@@ -100,7 +100,7 @@ func startWebServer() {
 	r.GET("/admin/groups/:email", func(c *gin.Context) {
 		email := c.Param("email")
 		recurse := c.Query("recurse") == "true"
-		members, err := groupTree.ListGroupMembers(email, recurse)
+		members, err := groupTree.ListGroupMembersForDisplay(email, recurse)
 		if err != nil {
 			renderJSON(c, 500, gin.H{"error": err.Error()})
 			return
@@ -110,7 +110,7 @@ func startWebServer() {
 
 	r.GET("/admin/users/:email", func(c *gin.Context) {
 		email := c.Param("email")
-		groups, err := groupTree.ListUserGroups(email)
+		groups, err := groupTree.ListUserGroupsForDisplay(email)
 		if err != nil {
 			renderJSON(c, 500, gin.H{"error": err.Error()})
 			return

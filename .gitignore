@@ -22,8 +22,7 @@ config2.yaml
 config3.yaml
 config4.yaml
 
-launch.json
+**/.vscode
+**/.idea
 
 __debug_bin
-
-.idea
