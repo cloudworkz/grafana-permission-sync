@@ -1,0 +1,6 @@
+.gitignore
+.dockerignore
+.idea
+.vscode
+.demoConfig.yaml
+.github
