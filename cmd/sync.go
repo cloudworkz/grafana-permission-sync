@@ -283,7 +283,7 @@ func applyRule(userUpdates map[string]*userUpdate, rule *Rule) {
 	for _, groupEmail := range rule.Groups {
 		group, err := groupTree.GetGroup(groupEmail)
 		if err != nil {
-			log.Error("unable to get group", "email", groupEmail, "error", err)
+			log.Errorw("unable to get group", "email", groupEmail, "error", err)
 		}
 		for _, user := range group.AllUsers() {
 			users = append(users, user.Email)
