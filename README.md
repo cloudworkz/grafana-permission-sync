@@ -26,7 +26,8 @@ This tool is a full rewrite of (rewrite of [grafana-gsuite-sync](https://github.
 
 ### Requirements
 - **Docker Image**: `docker pull quay.io/google-cloud-tools/grafana-permission-sync`
-- **Google Service Account**: credentials (in `.json`) of a Google service account, which has permissions to impersonate a user that can see all groups ([instructions on how to set that up](https://developers.google.com/admin-sdk/directory/v1/guides/delegation#delegate_domain-wide_authority_to_your_service_account))
+- **Google Service Account**: credentials (in `.json`) of a Google service account, which has permissions to impersonate a user that can see all groups ([instructions on how to set that up](https://developers.google.com/admin-sdk/directory/v1/guides/delegation#delegate_domain-wide_authority_to_your_service_account)). 
+- Note: If credentials are omitted we fall back to [Application Default Credentials](https://cloud.google.com/docs/authentication/production). This can be useful for running in GKE for instance. 
 - **Grafana Admin**: credentails of a Grafana user that has 'server admin' set
 - **Config**: use [the example](https://github.com/cloudworkz/grafana-permission-sync/blob/master/demoConfig.yaml) as a starting point and add your rules
 

@@ -92,23 +92,32 @@ func CreateGroupTree(logger *zap.SugaredLogger, domain string, userEmail string,
 	ctx := context.Background()
 	log := logger
 
-	log.Infow("loading creds", "path", serviceAccountFilePath)
-	jsonCredentials, err := ioutil.ReadFile(serviceAccountFilePath)
-	if err != nil {
-		return nil, err
-	}
+	var svc *admin.Service
+	if serviceAccountFilePath != "" {
+		log.Infow("loading creds", "path", serviceAccountFilePath)
+		jsonCredentials, err := ioutil.ReadFile(serviceAccountFilePath)
+		if err != nil {
+			return nil, err
+		}
 
-	config, err := google.JWTConfigFromJSON(jsonCredentials, scopes...)
-	if err != nil {
-		return nil, fmt.Errorf("JWTConfigFromJSON: %v", err)
-	}
-	config.Subject = userEmail
+		config, err := google.JWTConfigFromJSON(jsonCredentials, scopes...)
+		if err != nil {
+			return nil, fmt.Errorf("JWTConfigFromJSON: %v", err)
+		}
+		config.Subject = userEmail
 
-	ts := config.TokenSource(ctx)
+		ts := config.TokenSource(ctx)
 
-	svc, err := admin.NewService(ctx, option.WithTokenSource(ts))
-	if err != nil {
-		return nil, fmt.Errorf("NewService: %v", err)
+		svc, err = admin.NewService(ctx, option.WithTokenSource(ts))
+		if err != nil {
+			return nil, fmt.Errorf("NewService: %v", err)
+		}
+	} else {
+		var err error
+		svc, err = admin.NewService(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("NewService: %v", err)
+		}
 	}
 	return &GroupTree{svc, logger, domain, map[string]*Group{}, make(map[string]*User), groupBlacklist}, nil
 }
