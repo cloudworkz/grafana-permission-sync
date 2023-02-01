@@ -4,17 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"regexp"
 	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/oauth2/google"
-	admin "google.golang.org/api/admin/directory/v1"
+	"google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/option"
 )
 
-// GroupTree is the service that deals with google groups
+// GroupTree is the service that deals with Google Groups
 type GroupTree struct {
 	svc    *admin.Service
 	logger *zap.SugaredLogger
@@ -25,7 +25,7 @@ type GroupTree struct {
 	groupBlacklist []string
 }
 
-// Group is a 'google group', but in a more useful format than the original libarary provides
+// Group is a 'google group', but in a more useful format than the original library provides
 type Group struct {
 	Email string
 
@@ -33,7 +33,7 @@ type Group struct {
 	Users  []*User
 }
 
-// User is a more useful version of a google user
+// User is a more useful version of a Google user
 type User struct {
 	Email string
 	// Groups []*Group // Groups a user is in directly
@@ -76,7 +76,7 @@ func (g *Group) AllUsers() []*User {
 				addUser(u)
 			}
 		}
-		// and also add all sub-groups to the exploration list
+		// and also add all subgroups to the exploration list
 		for _, subGroup := range current.Groups {
 			if subGroup != nil {
 				addGroup(subGroup)
@@ -92,25 +92,36 @@ func CreateGroupTree(logger *zap.SugaredLogger, domain string, userEmail string,
 	ctx := context.Background()
 	log := logger
 
-	log.Infow("loading creds", "path", serviceAccountFilePath)
-	jsonCredentials, err := ioutil.ReadFile(serviceAccountFilePath)
-	if err != nil {
-		return nil, err
-	}
+	// if we have json credential use json credentials
+	if serviceAccountFilePath != "" {
+		log.Infow("loading creds", "path", serviceAccountFilePath)
+		jsonCredentials, err := os.ReadFile(serviceAccountFilePath)
+		if err != nil {
+			return nil, err
+		}
 
-	config, err := google.JWTConfigFromJSON(jsonCredentials, scopes...)
-	if err != nil {
-		return nil, fmt.Errorf("JWTConfigFromJSON: %v", err)
-	}
-	config.Subject = userEmail
+		config, err := google.JWTConfigFromJSON(jsonCredentials, scopes...)
+		if err != nil {
+			return nil, fmt.Errorf("JWTConfigFromJSON: %v", err)
+		}
+		config.Subject = userEmail
 
-	ts := config.TokenSource(ctx)
+		ts := config.TokenSource(ctx)
 
-	svc, err := admin.NewService(ctx, option.WithTokenSource(ts))
-	if err != nil {
-		return nil, fmt.Errorf("NewService: %v", err)
+		svc, err := admin.NewService(ctx, option.WithTokenSource(ts))
+		if err != nil {
+			return nil, fmt.Errorf("NewService: %v", err)
+		}
+		return &GroupTree{svc, logger, domain, map[string]*Group{}, make(map[string]*User), groupBlacklist}, nil
+		// if we do not have json credentials, fallback to google default auth (workload identity if in gke)
+	} else {
+		svc, err := admin.NewService(ctx, option.WithScopes(admin.AdminDirectoryGroupMemberReadonlyScope, admin.AdminDirectoryUserReadonlyScope, admin.AdminDirectoryGroupReadonlyScope))
+		log.Infof("NewService: %v", svc.Groups)
+		if err != nil {
+			return nil, fmt.Errorf("NewService: %v", err)
+		}
+		return &GroupTree{svc, logger, domain, map[string]*Group{}, make(map[string]*User), groupBlacklist}, nil
 	}
-	return &GroupTree{svc, logger, domain, map[string]*Group{}, make(map[string]*User), groupBlacklist}, nil
 }
 
 // Clear removes all groups and users from the cache
@@ -125,9 +136,8 @@ func (g *GroupTree) ListGroupMembersRaw(groupKey string) (result []*admin.Member
 	result = []*admin.Member{}
 
 	err = g.svc.Members.List(groupKey).IncludeDerivedMembership(false).Pages(context.Background(), func(page *admin.Members) error {
-		for _, member := range page.Members {
-			result = append(result, member)
-		}
+		result = append(result, page.Members...)
+
 		return nil
 	})
 
@@ -162,7 +172,7 @@ func (g *GroupTree) GetGroup(email string) (*Group, error) {
 
 	for _, m := range members {
 		if m.Type == "GROUP" {
-			subGroup, err := g.GetGroup(m.Email) // cache that sub group as well
+			subGroup, err := g.GetGroup(m.Email) // cache that subgroup as well
 			if err != nil {
 				continue
 			}
