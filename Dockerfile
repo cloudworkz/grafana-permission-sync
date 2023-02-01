@@ -9,13 +9,13 @@ COPY ./go.sum .
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o ./bin/grafana-permission-sync ./cmd
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./bin/grafana-permission-sync ./cmd
 # Compiled backend binary is in '/app/bin/' named 'grafana-permission-sync'
 
 
 
 # Create executable image
-FROM alpine:3.11
+FROM alpine:3.16
 WORKDIR /app
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/bin/grafana-permission-sync /app/grafana-permission-sync
